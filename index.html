@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Waste-to-Wealth Marketplace</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; margin:0; padding:0; background:#f0f4f3; }
+    header { background: #2E7D32; color:white; padding:15px; text-align:center; font-size:1.5rem; }
+    main { max-width:1100px; margin:30px auto; background:white; padding:25px; border-radius:12px; box-shadow:0 5px 20px rgba(0,0,0,0.1); }
+    h2 { color:#2E7D32; }
+    form label { font-weight:bold; margin-top:10px; display:block; }
+    form select, form input { width:100%; padding:10px; margin-top:6px; border-radius:8px; border:1px solid #ccc; }
+    .btn { background:#2E7D32; color:white; border:none; padding:10px 20px; margin-top:15px; border-radius:8px; cursor:pointer; }
+    .btn:hover { background:#1B5E20; }
+    .hidden { display:none; }
+    .waste-item { background:#f9f9f9; margin:10px 0; padding:12px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1); display:flex; justify-content:space-between; }
+    footer { margin-top:30px; text-align:center; font-size:0.9rem; color:#666; }
+  </style>
+</head>
+<body>
+  <header>♻ Waste-to-Wealth Marketplace ♻</header>
+  <main>
+    <!-- Authentication -->
+    <div id="authSection">
+      <h2>Login</h2>
+      <form id="authForm">
+        <label>User Type:</label>
+        <select name="user_type" required>
+          <option value="">-- Select --</option>
+          <option value="generator">Waste Generator</option>
+          <option value="recycler">Recycler</option>
+          <option value="admin">Admin</option>
+        </select>
+        <label>Email:</label>
+        <input type="email" name="email" required>
+        <label>Password:</label>
+        <input type="password" name="password" required>
+        <button class="btn" type="submit">Login</button>
+      </form>
+    </div>
+
+    <!-- Add Waste (Generator only) -->
+    <div id="wasteFormSection" class="hidden">
+      <h2>Add Waste Item</h2>
+      <form id="wasteForm">
+        <label>Waste Type:</label>
+        <select name="waste_type" required>
+          <option>Plastic</option>
+          <option>Glass</option>
+          <option>Wood</option>
+          <option>Metal</option>
+          <option>Organic</option>
+        </select>
+        <label>Quantity (kg):</label>
+        <input type="number" name="quantity" step="0.1" required>
+        <label>Pickup Location:</label>
+        <input type="text" name="location" required>
+        <label>Pickup Time:</label>
+        <input type="datetime-local" name="pickup_time" required>
+        <button class="btn" type="submit">➕ Add Waste</button>
+      </form>
+    </div>
+
+    <!-- Admin Filters -->
+    <div id="adminFilters" class="hidden">
+      <h2>Admin Dashboard</h2>
+      <label><b>Filter by Date:</b></label>
+      <select id="dateFilter">
+        <option value="0">All Time</option>
+        <option value="7">Last 7 Days</option>
+        <option value="30">Last 30 Days</option>
+      </select>
+    </div>
+
+    <!-- Waste List -->
+    <div class="waste-list hidden" id="wasteSection">
+      <h2>Waste Items</h2>
+      <select id="filterType">
+        <option value="">All Types</option>
+        <option>Plastic</option>
+        <option>Glass</option>
+        <option>Wood</option>
+        <option>Metal</option>
+        <option>Organic</option>
+      </select>
+      <div id="wasteItems"></div>
+    </div>
+
+    <!-- Charts -->
+    <canvas id="typeChart" class="hidden"></canvas>
+    <canvas id="generatorChart" class="hidden"></canvas>
+  </main>
+
+  <footer>&copy; 2025 Waste-to-Wealth</footer>
+
+<script>
+const API_URL = "http://localhost:5000";
+const authForm = document.getElementById("authForm");
+const wasteFormSection = document.getElementById("wasteFormSection");
+const wasteForm = document.getElementById("wasteForm");
+const wasteSection = document.getElementById("wasteSection");
+const wasteItemsDiv = document.getElementById("wasteItems");
+const filterType = document.getElementById("filterType");
+const typeChartCanvas = document.getElementById("typeChart").getContext("2d");
+const generatorChartCanvas = document.getElementById("generatorChart").getContext("2d");
+const dateFilter = document.getElementById("dateFilter");
+
+let currentUser = null;
+let typeChart, generatorChart;
+
+// === Authentication ===
+authForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const formData = new FormData(authForm);
+  const user_type = formData.get("user_type");
+  const email = formData.get("email");
+
+  currentUser = { user_type, email };
+  document.getElementById("authSection").classList.add("hidden");
+
+  if(user_type === "generator") wasteFormSection.classList.remove("hidden");
+  wasteSection.classList.remove("hidden");
+
+  if(user_type === "admin"){
+    document.getElementById("adminFilters").classList.remove("hidden");
+    document.getElementById("typeChart").classList.remove("hidden");
+    document.getElementById("generatorChart").classList.remove("hidden");
+    loadAdminSummary();
+  } else {
+    document.getElementById("typeChart").classList.remove("hidden");
+    loadWaste();
+  }
+});
+
+// === Waste List (Generator/Recycler) ===
+async function loadWaste() {
+  const res = await fetch(`${API_URL}/waste_items`);
+  const data = await res.json();
+  wasteItemsDiv.innerHTML = "";
+  let filteredData = data;
+  if(filterType.value) filteredData = data.filter(i => i.waste_type === filterType.value);
+
+  filteredData.forEach(item => {
+    const div = document.createElement("div");
+    div.classList.add("waste-item");
+    div.innerHTML = `
+      <span>${item.waste_type} - ${item.quantity}kg (${item.location})</span>
+      <span>Status: ${item.status}</span>
+      ${currentUser.user_type === 'recycler' && item.status === 'pending' ? '<button class="btn acceptBtn">Accept</button>' : ''}
+    `;
+    wasteItemsDiv.appendChild(div);
+
+    if(div.querySelector('.acceptBtn')) {
+      div.querySelector('.acceptBtn').addEventListener('click', async ()=>{
+        await fetch(`${API_URL}/accept_waste`, {
+          method:'POST',
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({waste_id:item.id, recycler_email:currentUser.email})
+        });
+        loadWaste();
+      });
+    }
+  });
+}
+filterType.addEventListener("change", loadWaste);
+
+// === Admin Summary ===
+async function loadAdminSummary() {
+  const days = dateFilter.value !== "0" ? `?days=${dateFilter.value}` : "";
+  const res = await fetch(`${API_URL}/admin_summary${days}`);
+  const summary = await res.json();
+
+  wasteItemsDiv.innerHTML = `
+    <h3>By Generator</h3>
+    <ul>${Object.entries(summary.by_generator).map(([g,t])=>`<li><b>${g}</b>: ${t} kg</li>`).join("")}</ul>
+    <h3>By Waste Type</h3>
+    <ul>${Object.entries(summary.by_type).map(([t,v])=>`<li><b>${t}</b>: ${v} kg</li>`).join("")}</ul>
+  `;
+
+  renderTypeChart(Object.keys(summary.by_type), Object.values(summary.by_type));
+  renderGeneratorChart(Object.keys(summary.by_generator), Object.values(summary.by_generator));
+}
+dateFilter.addEventListener("change", loadAdminSummary);
+
+// === Charts ===
+function renderTypeChart(labels, values){
+  if(typeChart) typeChart.destroy();
+  typeChart = new Chart(typeChartCanvas, {
+    type:"pie",
+    data:{labels,datasets:[{data:values, backgroundColor:["#4CAF50","#81C784","#FFD54F","#FF8A65","#64B5F6"]}]},
+    options:{plugins:{title:{display:true,text:"Waste Distribution by Type"}}}
+  });
+}
+function renderGeneratorChart(labels, values){
+  if(generatorChart) generatorChart.destroy();
+  generatorChart = new Chart(generatorChartCanvas, {
+    type:"bar",
+    data:{labels,datasets:[{data:values,label:"Waste (kg)", backgroundColor:"#42A5F5"}]},
+    options:{indexAxis:"y", plugins:{title:{display:true,text:"Waste Generated by User"}}, scales:{x:{beginAtZero:true}}}
+  });
+}
+
+// === Add Waste ===
+wasteForm.addEventListener("submit", async e=>{
+  e.preventDefault();
+  const formData = new FormData(wasteForm);
+  await fetch(`${API_URL}/add_waste`, {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      waste_type:formData.get("waste_type"),
+      quantity:parseFloat(formData.get("quantity")),
+      location:formData.get("location"),
+      pickup_time:formData.get("pickup_time"),
+      email:currentUser.email
+    })
+  });
+  wasteForm.reset();
+  loadWaste();
+});
+</script>
+</body>
+</html>
